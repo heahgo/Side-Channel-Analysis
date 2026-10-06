@@ -1,0 +1,20 @@
+# ChipWhisperer firmware build outputs
+objdir-*/
+*.elf
+*.hex
+*.bin
+*.map
+*.lss
+*.sym
+*.eep
+*.o
+*.lst
+
+# Jupyter / Python
+.ipynb_checkpoints/
+__pycache__/
+
+# captured traces
+traces/
+*.npy
+*.npz

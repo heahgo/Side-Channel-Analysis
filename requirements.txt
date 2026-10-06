@@ -1,0 +1,8 @@
+chipwhisperer
+kyber-py
+numpy
+matplotlib
+tqdm
+# tools/verify_emu.py
+unicorn
+pyelftools

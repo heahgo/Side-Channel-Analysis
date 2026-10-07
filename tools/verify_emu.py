@@ -39,8 +39,7 @@ class Firmware:
         dec = [n for n in self.syms if n.endswith("crypto_kem_dec") and not n.startswith("__")]
         assert len(dec) == 1, dec
         self.entry = self.syms[dec[0]]
-        self.armed = self.syms.get("mlkem_trig_armed")
-        self.basemul = any(n.startswith("__wrap_") for n in self.syms)
+        self.basemul = "-basemul" in elf_path
         self.gpio_writes, self.icount = [], 0
         self.mu.hook_add(UC_HOOK_MEM_WRITE, self._on_write, begin=GPIO_LO, end=GPIO_HI)
         self.mu.hook_add(UC_HOOK_CODE, self._on_code)
@@ -54,8 +53,6 @@ class Firmware:
     def decaps(self, dk, ct):
         mu = self.mu
         mu.mem_write(SK, dk); mu.mem_write(CT, ct); mu.mem_write(SS, bytes(32))
-        if self.armed is not None:
-            mu.mem_write(self.armed, b"\x01")
         self.gpio_writes, self.icount = [], 0
         mu.reg_write(UC_ARM_REG_SP, STACK_TOP)
         mu.reg_write(UC_ARM_REG_R0, SS); mu.reg_write(UC_ARM_REG_R1, CT); mu.reg_write(UC_ARM_REG_R2, SK)

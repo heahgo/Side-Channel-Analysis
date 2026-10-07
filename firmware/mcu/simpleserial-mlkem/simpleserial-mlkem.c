@@ -1,7 +1,6 @@
 #include "hal.h"
 #include "simpleserial.h"
 #include "mlkem_api.h"
-#include "mlkem_trigger.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -40,9 +39,8 @@ static uint8_t set_ct(uint8_t *buf, uint8_t len) { return load_chunk(ct, sizeof 
 static uint8_t do_dec(uint8_t *buf, uint8_t len)
 {
 #ifdef MLKEM_TRIGGER_BASEMUL
-    mlkem_trig_armed = 1;
+    /* trigger is in pqm4 indcpa_dec around the first secret-key basemul */
     crypto_kem_dec(ss, ct, sk);
-    mlkem_trig_armed = 0;
 #else
     trigger_high();
     crypto_kem_dec(ss, ct, sk);

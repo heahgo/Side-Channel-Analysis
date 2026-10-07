@@ -9,6 +9,10 @@
 #include <string.h>
 #include <stdint.h>
 
+#ifdef MLKEM_TRIGGER_BASEMUL
+#include "hal.h"
+#endif
+
 /*************************************************
 * Name:        indcpa_keypair
 *
@@ -195,7 +199,13 @@ void __attribute__ ((noinline)) indcpa_dec(unsigned char *m,
     poly_unpackdecompress(&mp, c, 0);
     poly_ntt(&mp);
     
+#ifdef MLKEM_TRIGGER_BASEMUL
+    trigger_high();
+#endif
     poly_frombytes_mul(&mp, &mp, sk);
+#ifdef MLKEM_TRIGGER_BASEMUL
+    trigger_low();
+#endif
     for(i = 1; i < KYBER_K; i++) {
         poly_unpackdecompress(&bp, c, i);
         poly_ntt(&bp);

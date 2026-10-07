@@ -1,13 +1,14 @@
 # ML-KEM SimpleSerial firmware for ChipWhisperer (pqm4 implementations)
 #
 #   make PLATFORM=CW308_STM32F4                                   # ML-KEM-768, m4fstack, full trigger
-#   make PLATFORM=CW308_STM32F4 IMPL=m4fspeed TRIGGER=basemul
+#   make PLATFORM=CW308_STM32F4 TRIGGER=basemul                   # ML-KEM-768 m4fstack only
 #   make PLATFORM=CW308_STM32F4 PARAMS=512 IMPL=clean
 #
 #   PARAMS  : 512 | 768 | 1024                    (default 768)
 #   IMPL    : m4fstack | m4fspeed | clean         (default m4fstack)
 #   TRIGGER : full    -> around crypto_kem_dec    (default)
-#             basemul -> around the first secret-key basemul in indcpa_dec only
+#             basemul -> around the first secret-key basemul in indcpa_dec
+#                        (#ifdef in pqm4 ml-kem-768/m4fstack/indcpa.c; that build only)
 #
 # Output: simpleserial-mlkem<PARAMS>-<IMPL>[-basemul]-<PLATFORM>.hex
 
@@ -27,6 +28,11 @@ ifeq ($(filter $(IMPL),m4fstack m4fspeed clean),)
 endif
 ifeq ($(filter $(TRIGGER),full basemul),)
   $(error TRIGGER must be full or basemul (got '$(TRIGGER)'))
+endif
+ifeq ($(TRIGGER),basemul)
+  ifneq ($(PARAMS)-$(IMPL),768-m4fstack)
+    $(error TRIGGER=basemul is only implemented for PARAMS=768 IMPL=m4fstack)
+  endif
 endif
 
 # ---------------------------------------------------------------------------
@@ -51,7 +57,7 @@ endif
 
 TARGET = simpleserial-mlkem$(PARAMS)-$(IMPL)$(if $(filter basemul,$(TRIGGER)),-basemul)
 
-SRC  += simpleserial-mlkem.c mlkem_trigger.c
+SRC  += simpleserial-mlkem.c
 SRC  += $(notdir $(wildcard $(IMPL_DIR)/*.c)) fips202.c
 ASRC += $(notdir $(wildcard $(IMPL_DIR)/*.S)) keccakf1600.S
 # Bare file names + VPATH: CW's 'make clean' removes $(SRC:.c=.i), which must not
@@ -59,21 +65,16 @@ ASRC += $(notdir $(wildcard $(IMPL_DIR)/*.S)) keccakf1600.S
 VPATH        += :$(IMPL_DIR):$(PQM4)/common:$(PQM4)/mupq/common
 EXTRAINCDIRS += $(IMPL_DIR) $(PQM4)/mupq/common
 
-# First secret-key basemul of indcpa_dec, wrapped at link time (pqm4 code untouched)
 ifeq ($(IMPL),m4fstack)
   CDEFS += -DMLKEM_IMPL_M4FSTACK
-  BASEMUL_FN = poly_frombytes_mul
 else ifeq ($(IMPL),m4fspeed)
   CDEFS += -DMLKEM_IMPL_M4FSPEED
-  BASEMUL_FN = poly_frombytes_mul_16_32
 else
   CDEFS += -DMLKEM_IMPL_CLEAN -DMLKEM_NAMESPACE=PQCLEAN_MLKEM$(PARAMS)_CLEAN_
-  BASEMUL_FN = PQCLEAN_MLKEM$(PARAMS)_CLEAN_poly_basemul_montgomery
 endif
 CDEFS += -DMLKEM_PARAMS=$(PARAMS)
 ifeq ($(TRIGGER),basemul)
-  CDEFS   += -DMLKEM_TRIGGER_BASEMUL
-  LDFLAGS += -Wl,--wrap=$(BASEMUL_FN)
+  CDEFS += -DMLKEM_TRIGGER_BASEMUL
 endif
 
 # pqm4 asm keeps values in FPU registers (vmov); CW builds STM32F4 soft-float,

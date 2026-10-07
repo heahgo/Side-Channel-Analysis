@@ -1,24 +1,22 @@
 # ML-KEM SimpleSerial firmware for ChipWhisperer (pqm4 implementations)
 #
-#   make PLATFORM=CW308_STM32F4                                   # ML-KEM-768, m4fstack, full trigger
-#   make PLATFORM=CW308_STM32F4 TRIGGER=basemul                   # ML-KEM-768 m4fstack only
-#   make PLATFORM=CW308_STM32F4 PARAMS=512 IMPL=clean
+#   make PLATFORM=CW308_STM32F4                                   # ML-KEM-768, m4fstack
+#   make PLATFORM=CW308_STM32F4 PARAMS=512 IMPL=clean TRIGGER=0
 #
 #   PARAMS  : 512 | 768 | 1024                    (default 768)
 #   IMPL    : m4fstack | m4fspeed | clean         (default m4fstack)
-#   TRIGGER : full    -> around crypto_kem_dec    (default)
-#             basemul -> around the first secret-key basemul in indcpa_dec
-#                        (#ifdef in pqm4 ml-kem-768/m4fstack/indcpa.c; that build only)
+#   TRIGGER : 1 -> define MLKEM_TRIGGER: trigger_high/low wherever the source
+#                  has #ifdef MLKEM_TRIGGER (default)
+#             0 -> no trigger
 #
-# Output: simpleserial-mlkem<PARAMS>-<IMPL>[-basemul]-<PLATFORM>.hex
+#   Trigger location (#ifdef MLKEM_TRIGGER):
+#     pqm4/crypto_kem/ml-kem-768/m4fstack/indcpa.c  indcpa_dec, first secret-key basemul
+#
+# Output: simpleserial-mlkem<PARAMS>-<IMPL>-<PLATFORM>.hex
 
 PARAMS  ?= 768
 IMPL    ?= m4fstack
-TRIGGER ?= full
-# backward-compatible alias
-ifeq ($(MLKEM_TRIGGER_BASEMUL),1)
-  TRIGGER = basemul
-endif
+TRIGGER ?= 1
 
 ifeq ($(filter $(PARAMS),512 768 1024),)
   $(error PARAMS must be 512, 768 or 1024 (got '$(PARAMS)'))
@@ -26,13 +24,8 @@ endif
 ifeq ($(filter $(IMPL),m4fstack m4fspeed clean),)
   $(error IMPL must be m4fstack, m4fspeed or clean (got '$(IMPL)'))
 endif
-ifeq ($(filter $(TRIGGER),full basemul),)
-  $(error TRIGGER must be full or basemul (got '$(TRIGGER)'))
-endif
-ifeq ($(TRIGGER),basemul)
-  ifneq ($(PARAMS)-$(IMPL),768-m4fstack)
-    $(error TRIGGER=basemul is only implemented for PARAMS=768 IMPL=m4fstack)
-  endif
+ifeq ($(filter $(TRIGGER),0 1),)
+  $(error TRIGGER must be 0 or 1 (got '$(TRIGGER)'))
 endif
 
 # ---------------------------------------------------------------------------
@@ -55,7 +48,7 @@ else
   IMPL_DIR = $(PQM4)/crypto_kem/ml-kem-$(PARAMS)/$(IMPL)
 endif
 
-TARGET = simpleserial-mlkem$(PARAMS)-$(IMPL)$(if $(filter basemul,$(TRIGGER)),-basemul)
+TARGET = simpleserial-mlkem$(PARAMS)-$(IMPL)
 
 SRC  += simpleserial-mlkem.c
 SRC  += $(notdir $(wildcard $(IMPL_DIR)/*.c)) fips202.c
@@ -73,8 +66,11 @@ else
   CDEFS += -DMLKEM_IMPL_CLEAN -DMLKEM_NAMESPACE=PQCLEAN_MLKEM$(PARAMS)_CLEAN_
 endif
 CDEFS += -DMLKEM_PARAMS=$(PARAMS)
-ifeq ($(TRIGGER),basemul)
-  CDEFS += -DMLKEM_TRIGGER_BASEMUL
+ifeq ($(TRIGGER),1)
+  CDEFS += -DMLKEM_TRIGGER
+  ifeq ($(shell grep -l MLKEM_TRIGGER $(IMPL_DIR)/*.c),)
+    $(warning TRIGGER=1 but no '#ifdef MLKEM_TRIGGER' in $(IMPL_DIR): firmware has no trigger)
+  endif
 endif
 
 # pqm4 asm keeps values in FPU registers (vmov); CW builds STM32F4 soft-float,

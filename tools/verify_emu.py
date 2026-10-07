@@ -2,8 +2,8 @@
 """Run crypto_kem_dec from a built firmware ELF in the Unicorn Cortex-M4 emulator
 and compare the shared secret with kyber-py (FIPS 203). No board needed.
 
-For TRIGGER=basemul builds it also checks that the trigger GPIO is raised and
-lowered exactly once during decapsulation and reports the window length.
+It also checks that the trigger GPIO is raised and lowered at most once
+during decapsulation and reports the window length.
 
     python tools/verify_emu.py firmware/mcu/simpleserial-mlkem/simpleserial-mlkem768-m4fstack-CW308_STM32F4.elf -n 10
 """
@@ -39,7 +39,6 @@ class Firmware:
         dec = [n for n in self.syms if n.endswith("crypto_kem_dec") and not n.startswith("__")]
         assert len(dec) == 1, dec
         self.entry = self.syms[dec[0]]
-        self.basemul = "-basemul" in elf_path
         self.gpio_writes, self.icount = [], 0
         self.mu.hook_add(UC_HOOK_MEM_WRITE, self._on_write, begin=GPIO_LO, end=GPIO_HI)
         self.mu.hook_add(UC_HOOK_CODE, self._on_code)
@@ -86,12 +85,13 @@ def main():
         good = fw.decaps(dk, ct) == key
         ok += good
         w = fw.gpio_writes
-        if fw.basemul:
-            t = len(w) == 2
-            note = f"trigger window {w[1] - w[0]} instr of {fw.icount}" if t else f"trigger writes={len(w)} (expected 2)"
+        t = len(w) in (0, 2)
+        if len(w) == 2:
+            note = f"trigger window {w[1] - w[0]} instr of {fw.icount}"
+        elif not w:
+            note = f"{fw.icount} instr, no trigger"
         else:
-            t = len(w) == 0
-            note = f"{fw.icount} instr" + ("" if t else f", unexpected GPIO writes={len(w)}")
+            note = f"{fw.icount} instr, trigger writes={len(w)} (expected 0 or 2)"
         trig_ok += t
         print(f"[{i}] ML-KEM-{params} {'tampered ' if tampered else ''}{'MATCH' if good else 'MISMATCH'}  {note}")
     print(f"{ok}/{args.n} match, trigger {trig_ok}/{args.n} ok")

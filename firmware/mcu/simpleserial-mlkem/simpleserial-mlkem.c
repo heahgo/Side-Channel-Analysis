@@ -38,14 +38,8 @@ static uint8_t set_ct(uint8_t *buf, uint8_t len) { return load_chunk(ct, sizeof 
 
 static uint8_t do_dec(uint8_t *buf, uint8_t len)
 {
-#ifdef MLKEM_TRIGGER_BASEMUL
-    /* trigger is in pqm4 indcpa_dec around the first secret-key basemul */
+    /* trigger: #ifdef MLKEM_TRIGGER inside the pqm4 sources */
     crypto_kem_dec(ss, ct, sk);
-#else
-    trigger_high();
-    crypto_kem_dec(ss, ct, sk);
-    trigger_low();
-#endif
     simpleserial_put('r', CRYPTO_BYTES, ss);
     return 0x00;
 }
@@ -69,7 +63,7 @@ static uint8_t info(uint8_t *buf, uint8_t len)
 #else
     out[1] = 3;                             /* clean */
 #endif
-#ifdef MLKEM_TRIGGER_BASEMUL
+#ifdef MLKEM_TRIGGER
     out[2] = 1;
 #else
     out[2] = 0;

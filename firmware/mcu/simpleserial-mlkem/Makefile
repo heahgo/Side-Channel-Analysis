@@ -16,6 +16,9 @@
 #   (both in indcpa.c, indcpa_dec). m4fstack/m4fspeed have no trigger: setting
 #   TRIGGER_A/TRIGGER_B=1 there just defines the macro with no effect (warning).
 #
+#   Host protocol: SimpleSerial 2.1 only (SS_VER_2_1, 230400 baud); dk/ct are
+#   sent in 240-byte chunks with scmd = chunk index (see simpleserial-mlkem.c).
+#
 # Output: simpleserial-mlkem<PARAMS>-<IMPL>-<PLATFORM>.hex
 
 PARAMS    ?= 768
@@ -95,7 +98,10 @@ endif
 # so only the assembler needs the FPU. CP10/CP11 are enabled in main().
 ASFLAGS += -mfpu=fpv4-sp-d16
 
-SS_VER ?= SS_VER_1_1
+SS_VER ?= SS_VER_2_1
+ifneq ($(SS_VER),SS_VER_2_1)
+  $(error simpleserial-mlkem uses SimpleSerial 2.1 (scmd = chunk index); got SS_VER=$(SS_VER))
+endif
 # ML-KEM brings its own code: no CW crypto library
 CRYPTO_TARGET = NONE
 EXTRA_OPTS = NO_EXTRA_OPTS

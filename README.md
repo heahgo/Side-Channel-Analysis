@@ -2,7 +2,8 @@
 
 ChipWhisperer로 **ML-KEM**(FIPS 203, Kyber)의 부채널 파형을 수집하기 위한 펌웨어와 노트북입니다.
 타깃은 **CW308T-STM32F4HWC**(STM32F415RGT6)이고, 암호 구현은 [pqm4](https://github.com/mupq/pqm4)의 코드를
-사용합니다(트리거용 `#ifdef MLKEM_TRIGGER` 한 곳 외에는 수정 없음). ChipWhisperer 빌드 시스템도 레포에 포함되어 있어 레포 하나로 빌드됩니다. 파라미터셋(512/768/1024)과 구현(m4fspeed/m4fstack/clean)은 빌드 옵션으로 고릅니다.
+사용합니다(`clean`의 `indcpa.c`에 트리거용 `#ifdef MLKEM_TRIGGER_A/B` 블록만 추가, 나머지는 수정 없음). ChipWhisperer 빌드 시스템도 레포에 포함되어 있어 레포 하나로 빌드됩니다. 파라미터셋(512/768/1024)과 구현(m4fspeed/m4fstack/clean)은 빌드 옵션으로 고릅니다.
+호스트와는 SimpleSerial 2.1(230400 baud)로 통신합니다.
 
 ## 구성
 
@@ -22,14 +23,14 @@ Side-Channel-Analysis/
 │   │   ├── mupq/common/                   # fips202, randombytes.h, compat.h
 │   │   └── mupq/pqclean/crypto_kem/ml-kem-{512,768,1024}/clean/
 │   └── simpleserial-mlkem/                # ML-KEM SimpleSerial 펌웨어 (CW의 simpleserial-aes와 같은 위치)
-│       ├── Makefile                       # PARAMS / IMPL / TRIGGER 옵션, FIRMWAREPATH = ../.
-│       ├── simpleserial-mlkem.c           # 명령 처리(s/c/d/x/i), FPU 활성화
+│       ├── Makefile                       # PARAMS / IMPL / TRIGGER_A / TRIGGER_B 옵션, FIRMWAREPATH = ../.
+│       ├── simpleserial-mlkem.c           # SimpleSerial 2.1 명령 처리(s/c/d/x/i), FPU 활성화
 │       └── mlkem_api.h                    # clean(PQClean) 심볼 이름 매핑
 ├── jupyter/                               # = chipwhisperer/jupyter 구조
 │   ├── Setup_Scripts/Setup_Generic.ipynb  # ChipWhisperer에서 복사 (scope/target/prog/reset_target)
 │   └── mlkem-test.ipynb                   # 빌드 → 플래시 → 기능 검증 → 파형 수집
 ├── tools/
-│   ├── verify_emu.py                      # 보드 없이 ELF를 에뮬레이터로 검증
+│   ├── verify_emu.py                      # 보드 없이 ELF를 에뮬레이터로 검증 (복호화 / SimpleSerial 프로토콜)
 │   ├── import_pqm4.sh                     # pqm4에서 firmware/mcu/pqm4 다시 가져오기
 │   └── import_chipwhisperer.sh            # ChipWhisperer 빌드 파일 다시 가져오기
 └── requirements.txt
@@ -69,20 +70,23 @@ ChipWhisperer 빌드 시스템 파일은 `firmware/mcu`에 들어 있고, STM32F
 sudo apt install -y gcc-arm-none-eabi libnewlib-arm-none-eabi make
 
 cd firmware/mcu/simpleserial-mlkem
-make PLATFORM=CW308_STM32F4                                       # ML-KEM-768, m4fstack, 트리거 켬
-make PLATFORM=CW308_STM32F4 PARAMS=1024 IMPL=clean                # ML-KEM-1024, PQClean 레퍼런스
+make PLATFORM=CW308_STM32F4 IMPL=clean OPT=0                      # ML-KEM-768, clean, 트리거 A+B (연구 기본 구성)
+make PLATFORM=CW308_STM32F4 IMPL=clean OPT=0 TRIGGER_A=1 TRIGGER_B=0   # 트리거 A만
+make PLATFORM=CW308_STM32F4 PARAMS=1024 IMPL=m4fstack             # ML-KEM-1024, pqm4 m4fstack (트리거 없음)
 ```
 
 | 옵션 | 값 | 기본값 | 설명 |
 |---|---|---|---|
 | `PARAMS` | `512` `768` `1024` | `768` | ML-KEM 파라미터셋 |
 | `IMPL` | `m4fstack` `m4fspeed` `clean` | `m4fstack` | pqm4 구현 |
-| `TRIGGER` | `0` `1` | `1` | 트리거 켜기/끄기 (위치는 소스의 `#ifdef MLKEM_TRIGGER`) |
-| `SS_VER` | `SS_VER_1_1` 등 | `SS_VER_1_1` | SimpleSerial 버전(호스트와 맞출 것) |
-| `OPT` | `0` `1` `2` `3` `s` | `s` | 컴파일 최적화 수준(`-O<값>`). pqm4 기본은 `3`, CW 기본은 `s`. 논문 비교용은 `OPT=3` |
+| `TRIGGER_A` | `0` `1` | `1` | 트리거 A(비밀키 basemul) 켜기/끄기 |
+| `TRIGGER_B` | `0` `1` | `1` | 트리거 B(`poly_tomsg`) 켜기/끄기 |
+| `TRIGGER` | `0` `1` | (없음) | 지정하면 `TRIGGER_A`, `TRIGGER_B`를 둘 다 이 값으로 |
+| `SS_VER` | `SS_VER_2_1` | `SS_VER_2_1` | SimpleSerial 버전. 2.1만 지원(다른 값이면 `make` 오류) |
+| `OPT` | `0` `1` `2` `3` `s` | `s` | 컴파일 최적화 수준(`-O<값>`). pqm4 기본은 `3`, CW 기본은 `s` |
 
 > 어셈블리(NTT, basemul, Keccak)는 `OPT`의 영향을 받지 않지만 주변 C 코드의 명령 순서와 누설 위치가 달라집니다.
-> pqm4를 타깃으로 한 다른 연구와 조건을 맞추려면 `OPT=3`으로 빌드하세요. 노트북은 기본으로 `OPT = "3"`을 씁니다.
+> 노트북은 feasibility 단계라 누설이 잘 보이는 `OPT = "0"`을 기본으로 씁니다. pqm4 연구와 조건을 맞출 때는 `OPT=3`.
 
 출력 파일 이름은 `simpleserial-mlkem<PARAMS>-<IMPL>-CW308_STM32F4.hex`입니다.
 CW 빌드 시스템의 `make`는 매번 전체를 다시 빌드하므로, 옵션을 바꿀 때 `make clean`이 필요 없습니다.
@@ -101,18 +105,21 @@ Plantard 리덕션을 씁니다. 누설 모델이 `clean`과 다르니 주의하
 ### 트리거
 
 CW 예제(`simpleserial-aes` 등)처럼 트리거 위치는 소스에 `trigger_high()`/`trigger_low()`로 직접 넣고,
-빌드 옵션 `TRIGGER`는 켜고 끄기만 합니다. `TRIGGER=1`(기본)이면 `-DMLKEM_TRIGGER`가 정의되어
-`#ifdef MLKEM_TRIGGER`로 감싼 곳에서 트리거가 걸리고, `TRIGGER=0`이면 트리거가 없습니다.
+빌드 옵션은 켜고 끄기만 합니다. `TRIGGER_A=1`이면 `-DMLKEM_TRIGGER_A`, `TRIGGER_B=1`이면 `-DMLKEM_TRIGGER_B`가 정의됩니다.
+트리거는 `clean`에만 있습니다(`m4fstack`/`m4fspeed`는 pqm4 원본 그대로).
 
-| 위치 | 구간 |
-|---|---|
-| `pqm4/crypto_kem/ml-kem-768/m4fstack/indcpa.c`의 `indcpa_dec` | 첫 비밀키 basemul `poly_frombytes_mul(&mp, &mp, sk)` (비밀키 첫 다항식 × NTT(u₀)) |
+| 트리거 | 위치 (`mupq/pqclean/crypto_kem/ml-kem-*/clean/indcpa.c`의 `indcpa_dec`) | 구간 |
+|---|---|---|
+| A | `polyvec_basemul_acc_montgomery(&mp, &skpv, &b)` 호출 앞뒤 | 비밀키 ŝ × NTT(u) (basemul K번 + 누적) |
+| B | `poly_tomsg(m, &mp)` 호출 앞뒤 | 복호화 다항식 → 메시지 비트 (Compress₁) |
 
-`indcpa_dec` 안에 있으므로 재암호화 중의 basemul은 표시되지 않습니다. 다른 연산이나 다른 구현을 노리려면
-해당 소스에 같은 `#ifdef MLKEM_TRIGGER` 블록을 옮기거나 추가하면 됩니다.
-`#ifdef MLKEM_TRIGGER`가 없는 구현을 `TRIGGER=1`로 빌드하면 `make`가 경고를 냅니다(트리거 없는 펌웨어).
+트리거는 함수 안이 아니라 `indcpa_dec`의 호출 지점에 있습니다. `polyvec_basemul_acc_montgomery`는 재암호화(`indcpa_enc`)에서도
+K+1번 불리므로, 함수 안에 넣으면 비밀키와 무관한 곱셈에서도 트리거가 걸립니다.
+한 번의 `d` 명령에서 A(먼저) → B 순서로 펄스가 최대 두 번 나옵니다(768/-O0 에뮬레이터: A 169,127 / 간격 182,058 / B 12,884 명령어).
+현재 트리거 블록은 ML-KEM-768 `clean`에만 들어 있습니다. 다른 파라미터셋에서 쓰려면 같은 블록을 해당 `indcpa.c`에 넣으세요.
+`#ifdef`가 없는 구현을 `TRIGGER_A/B=1`로 빌드하면 `make`가 경고를 냅니다(트리거 없는 펌웨어).
 
-### 측정값 (에뮬레이터 명령어 수, arm-none-eabi-gcc 13.3)
+### 측정값 (에뮬레이터 명령어 수, arm-none-eabi-gcc 13.3, `OPT=s`)
 
 | 파라미터 | 구현 | `crypto_kem_dec` | 첫 basemul | 플래시 |
 |---|---|---|---|---|
@@ -133,43 +140,57 @@ CW-Lite(최대 약 24k 샘플)로는 m4f의 basemul 한 번은 다 담기지만,
 
 `jupyter/mlkem-test.ipynb`를 위에서부터 실행합니다.
 
-1. **설정**: `PARAMS`, `IMPL`, `TRIGGER`
-2. **연결**: CW 강의 노트북처럼 `%run "Setup_Scripts/Setup_Generic.ipynb"`로 `scope`, `target`, `prog`, `reset_target(scope)`를 만듭니다(`default_setup()`: 7.37MHz 클럭, ADC = 4배 클럭).
+1. **설정**: `PARAMS`, `IMPL`, `TRIGGER_A`, `TRIGGER_B`, `OPT` (`SS_VER = "SS_VER_2_1"`)
+2. **연결**: CW 강의 노트북처럼 `%run "Setup_Scripts/Setup_Generic.ipynb"`로 `scope`, `target`, `prog`, `reset_target(scope)`를 만듭니다(`default_setup()`: 7.37MHz 클럭, ADC = 4배 클럭). `SS_VER_2_1`이면 `target`은 `SimpleSerial2`입니다.
 3. **빌드·플래시**: CW 강의 노트북처럼 `%%bash -s "$PLATFORM" ...` 셀에서 `make`를 실행하고, 만들어진 hex를 `cw.program_target(scope, prog, ...)`로 플래시합니다. ST-Link는 필요 없습니다.
 4. **기능 검증**: `i` 명령으로 플래시된 펌웨어가 설정과 같은지 확인하고, `kyber-py`로 만든 암호문의 복호화 결과를 비교합니다. 변조된 암호문(implicit rejection)도 확인합니다.
 5. **파형 1개**: 파형을 그리고 `scope.adc.trig_count`로 트리거 구간 길이를 확인합니다.
 6. **대량 수집**: 고정 비밀키와 무작위 암호문으로 `N_TRACES`개를 수집해 레포 최상위 `traces/*.npz`로 저장합니다.
 
-## 펌웨어 프로토콜 (SimpleSerial 1.1)
+## 펌웨어 프로토콜 (SimpleSerial 2.1)
 
-| 명령 | 페이로드 | 동작 |
-|---|---|---|
-| `s` | 129바이트 = 조각 번호 1 + 데이터 128 | 비밀키(dk) 조각 적재 |
-| `c` | 129바이트 = 조각 번호 1 + 데이터 128 | 암호문 조각 적재 |
-| `d` | 0바이트 | `crypto_kem_dec` 실행 후 `r`로 공유 비밀 32바이트 반환 |
-| `x` | 0바이트 | 비밀키·암호문 버퍼 초기화 |
-| `i` | 0바이트 | `r` 4바이트: 파라미터/256, 구현(1=m4fstack, 2=m4fspeed, 3=clean), 트리거(0=없음, 1=있음), 조각 크기 |
+패킷은 `[cmd, scmd, len, data(len), crc]`(COBS 인코딩, 230400 baud)이고, 명령마다 펌웨어가 `e` 패킷(에러 코드, 0 = 정상)으로 응답합니다.
+한 패킷의 데이터는 최대 249바이트라 비밀키·암호문은 240바이트 조각으로 나눠 보냅니다. `scmd`가 조각 번호입니다.
+
+| 명령 | scmd | 페이로드 | 동작 |
+|---|---|---|---|
+| `s` | 조각 번호 | 최대 240바이트 (마지막 조각은 남은 길이) | 비밀키(dk) 조각을 `번호 × 240` 위치에 적재 |
+| `c` | 조각 번호 | 최대 240바이트 | 암호문 조각 적재 |
+| `d` | 0 | 0바이트 | `crypto_kem_dec` 실행 후 `r`로 공유 비밀 32바이트 반환 |
+| `x` | 0 | 0바이트 | 비밀키·암호문 버퍼 초기화 |
+| `i` | 0 | 0바이트 | `r` 4바이트: 파라미터/256, 구현(1=m4fstack, 2=m4fspeed, 3=clean), 트리거 비트(bit0=A, bit1=B), 조각 크기(240) |
 
 | 파라미터 | 비밀키 dk | 암호문 |
 |---|---|---|
-| 512 | 1632바이트 (13조각) | 768바이트 (6조각) |
-| 768 | 2400바이트 (19조각) | 1088바이트 (9조각) |
-| 1024 | 3168바이트 (25조각) | 1568바이트 (13조각) |
+| 512 | 1632바이트 (7조각) | 768바이트 (4조각) |
+| 768 | 2400바이트 (10조각) | 1088바이트 (5조각) |
+| 1024 | 3168바이트 (14조각) | 1568바이트 (7조각) |
 
-SimpleSerial 1.1은 고정 길이라 마지막 조각도 0으로 채워 129바이트로 보냅니다.
+| `e` 에러 코드 | 의미 |
+|---|---|
+| `0x00` | 정상 |
+| `0x01`~`0x05` | SimpleSerial 프레임 오류(명령 없음, CRC, 길이 등) |
+| `0x10` | 조각 번호가 버퍼 밖 |
+| `0x11` | 조각이 240바이트보다 길거나 버퍼 끝을 넘음 |
+
+호스트에서는 `target.send_cmd('s', 번호, 조각)` 후 `target.simpleserial_wait_ack()`로 에러 코드를 확인합니다.
 비밀키와 암호문은 FIPS 203 바이트 형식 그대로이며, `kyber-py`의 `dk`, `ct`를 그대로 보내면 됩니다.
 
 ## 보드 없이 검증
 
-빌드한 ELF의 `crypto_kem_dec`를 Unicorn(Cortex-M4) 에뮬레이터로 실행해 `kyber-py` 결과와 비교합니다.
-트리거 GPIO가 많아야 한 번 올라갔다 내려가는지와 구간 길이도 확인합니다.
+빌드한 ELF를 Unicorn(Cortex-M4) 에뮬레이터로 실행해 `kyber-py` 결과와 비교합니다.
 
 ```bash
 pip install unicorn pyelftools kyber-py
-python tools/verify_emu.py firmware/mcu/simpleserial-mlkem/simpleserial-mlkem768-m4fstack-CW308_STM32F4.elf -n 10
+# 1) crypto_kem_dec 직접 실행: 공유 비밀 비교 + 트리거 구간(A/B) 길이
+python tools/verify_emu.py firmware/mcu/simpleserial-mlkem/simpleserial-mlkem768-clean-CW308_STM32F4.elf -n 10
+# 2) 펌웨어 main()의 SimpleSerial 2.1 루프를 ChipWhisperer의 SimpleSerial2 클래스로 구동
+#    (i/s/c/d/x, 에러 코드, 'i' 트리거 비트와 실제 펄스 수 일치까지 확인)
+python tools/verify_emu.py <elf> --protocol --cw <chipwhisperer>/software -n 5
 ```
 
-파라미터셋은 파일 이름에서 읽고, 다르면 `-p 512`처럼 지정합니다.
+파라미터셋은 파일 이름에서 읽고, 다르면 `-p 512`처럼 지정합니다. `--protocol`은 chipwhisperer 패키지가 필요합니다
+(설치되어 있으면 `--cw` 생략). 에뮬레이터는 보드보다 느리므로 `--timeout`(ms) 기본값을 크게 잡았습니다.
 
 ## 외부 코드 갱신
 
@@ -194,7 +215,8 @@ ChipWhisperer를 갱신하면 `chipwhisperer-fw-extra` 서브모듈도 그 커�
 | `STM32F4 HAL missing` | 서브모듈 미초기화 → `git submodule update --init --depth 1` |
 | 어셈블러가 `vmov` 등을 거부 | `ASFLAGS += -mfpu=fpv4-sp-d16` 누락 |
 | 복호화 중 HardFault(응답 없음) | FPU(CPACR) 비활성 |
-| `ack 없음` / 응답 타임아웃 | 펌웨어와 호스트의 `SS_VER` 불일치, 조각을 129바이트로 채우지 않음 |
+| `ack 없음` / 응답 타임아웃 | 펌웨어와 호스트의 `SS_VER` 불일치(노트북 `SS_VER = "SS_VER_2_1"`로 Setup을 다시 실행), baud 불일치 |
+| `Device reported error 0x10/0x11` | 조각 번호/길이 오류 → 조각 크기는 `i`가 알려주는 값(240) 사용 |
 | 노트북에서 "펌웨어가 설정과 다릅니다" | 다른 옵션으로 빌드한 hex가 플래시됨 → 2·3단계 다시 실행 |
 | 공유 비밀 불일치 | `tools/verify_emu.py`로 ELF부터 검증 |
 
@@ -202,7 +224,7 @@ ChipWhisperer를 갱신하면 `chipwhisperer-fw-extra` 서브모듈도 그 커�
 
 | 구분 | 파일 |
 |---|---|
-| pqm4 원본 그대로 | `firmware/mcu/pqm4/` (`VERSION` 제외, `crypto_kem/ml-kem-768/m4fstack/indcpa.c`에 트리거 `#ifdef` 추가) |
+| pqm4 원본 그대로 | `firmware/mcu/pqm4/` (`VERSION` 제외, `mupq/pqclean/crypto_kem/ml-kem-768/clean/indcpa.c`에 트리거 `#ifdef` 블록만 추가) |
 | ChipWhisperer 원본 그대로 | `firmware/mcu/Makefile.inc`, `crypto/Makefile.crypto`, `hal/Makefile.hal`, `hal/PLATFORM_INCLUDE.mk`, `hal/hal.c`, `hal/hal.h`, `simpleserial/`, `jupyter/Setup_Scripts/Setup_Generic.ipynb` |
 | 서브모듈 | `firmware/mcu/hal/chipwhisperer-fw-extra` |
 | 이 저장소에서 작성 | `firmware/mcu/simpleserial-mlkem/`, `jupyter/mlkem-test.ipynb`, `tools/` |

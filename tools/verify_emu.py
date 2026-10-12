@@ -85,13 +85,16 @@ def main():
         good = fw.decaps(dk, ct) == key
         ok += good
         w = fw.gpio_writes
-        t = len(w) in (0, 2)
-        if len(w) == 2:
+        t = len(w) in (0, 2, 4)
+        if len(w) == 4:
+            note = (f"2 trigger windows: A={w[1] - w[0]} instr, B={w[3] - w[2]} instr "
+                    f"(gap={w[2] - w[1]} instr) of {fw.icount}")
+        elif len(w) == 2:
             note = f"trigger window {w[1] - w[0]} instr of {fw.icount}"
         elif not w:
             note = f"{fw.icount} instr, no trigger"
         else:
-            note = f"{fw.icount} instr, trigger writes={len(w)} (expected 0 or 2)"
+            note = f"{fw.icount} instr, trigger writes={len(w)} (expected 0, 2 or 4)"
         trig_ok += t
         print(f"[{i}] ML-KEM-{params} {'tampered ' if tampered else ''}{'MATCH' if good else 'MISMATCH'}  {note}")
     print(f"{ok}/{args.n} match, trigger {trig_ok}/{args.n} ok")

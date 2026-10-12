@@ -9,6 +9,12 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifdef MLKEM_TRIGGER_A
+#include "hal.h"
+#elif defined(MLKEM_TRIGGER_B)
+#include "hal.h"
+#endif
+
 /*************************************************
 * Name:        pack_pk
 *
@@ -317,11 +323,23 @@ void PQCLEAN_MLKEM768_CLEAN_indcpa_dec(uint8_t m[KYBER_INDCPA_MSGBYTES],
     unpack_sk(&skpv, sk);
 
     PQCLEAN_MLKEM768_CLEAN_polyvec_ntt(&b);
+#ifdef MLKEM_TRIGGER_A
+    trigger_high();
+#endif
     PQCLEAN_MLKEM768_CLEAN_polyvec_basemul_acc_montgomery(&mp, &skpv, &b);
+#ifdef MLKEM_TRIGGER_A
+    trigger_low();
+#endif
     PQCLEAN_MLKEM768_CLEAN_poly_invntt_tomont(&mp);
 
     PQCLEAN_MLKEM768_CLEAN_poly_sub(&mp, &v, &mp);
     PQCLEAN_MLKEM768_CLEAN_poly_reduce(&mp);
 
+#ifdef MLKEM_TRIGGER_B
+    trigger_high();
+#endif
     PQCLEAN_MLKEM768_CLEAN_poly_tomsg(m, &mp);
+#ifdef MLKEM_TRIGGER_B
+    trigger_low();
+#endif
 }

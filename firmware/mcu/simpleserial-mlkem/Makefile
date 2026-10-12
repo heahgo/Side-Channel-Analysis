@@ -1,22 +1,31 @@
 # ML-KEM SimpleSerial firmware for ChipWhisperer (pqm4 implementations)
 #
 #   make PLATFORM=CW308_STM32F4                                   # ML-KEM-768, m4fstack
-#   make PLATFORM=CW308_STM32F4 PARAMS=512 IMPL=clean TRIGGER=0
+#   make PLATFORM=CW308_STM32F4 PARAMS=512 IMPL=clean TRIGGER_A=1 TRIGGER_B=0
 #
-#   PARAMS  : 512 | 768 | 1024                    (default 768)
-#   IMPL    : m4fstack | m4fspeed | clean         (default m4fstack)
-#   TRIGGER : 1 -> define MLKEM_TRIGGER: trigger_high/low wherever the source
-#                  has #ifdef MLKEM_TRIGGER (default)
-#             0 -> no trigger
+#   PARAMS    : 512 | 768 | 1024                    (default 768)
+#   IMPL      : m4fstack | m4fspeed | clean         (default m4fstack)
+#   TRIGGER_A : 1 -> trigger_high/low around the secret-key basemul
+#                    (indcpa_dec, polyvec_basemul_acc_montgomery)   (default 1)
+#   TRIGGER_B : 1 -> trigger_high/low around poly_tomsg             (default 1)
+#               0 -> that trigger is compiled out
+#   TRIGGER   : shorthand, overrides both TRIGGER_A and TRIGGER_B when set
+#               explicitly on the command line (0 or 1)
 #
-#   Trigger location (#ifdef MLKEM_TRIGGER):
-#     pqm4/crypto_kem/ml-kem-768/m4fstack/indcpa.c  indcpa_dec, first secret-key basemul
+#   Only IMPL=clean has the #ifdef MLKEM_TRIGGER_A / MLKEM_TRIGGER_B sites
+#   (both in indcpa.c, indcpa_dec). m4fstack/m4fspeed have no trigger: setting
+#   TRIGGER_A/TRIGGER_B=1 there just defines the macro with no effect (warning).
 #
 # Output: simpleserial-mlkem<PARAMS>-<IMPL>-<PLATFORM>.hex
 
-PARAMS  ?= 768
-IMPL    ?= m4fstack
-TRIGGER ?= 1
+PARAMS    ?= 768
+IMPL      ?= m4fstack
+TRIGGER_A ?= 1
+TRIGGER_B ?= 1
+ifdef TRIGGER
+  TRIGGER_A := $(TRIGGER)
+  TRIGGER_B := $(TRIGGER)
+endif
 
 ifeq ($(filter $(PARAMS),512 768 1024),)
   $(error PARAMS must be 512, 768 or 1024 (got '$(PARAMS)'))
@@ -24,8 +33,11 @@ endif
 ifeq ($(filter $(IMPL),m4fstack m4fspeed clean),)
   $(error IMPL must be m4fstack, m4fspeed or clean (got '$(IMPL)'))
 endif
-ifeq ($(filter $(TRIGGER),0 1),)
-  $(error TRIGGER must be 0 or 1 (got '$(TRIGGER)'))
+ifeq ($(filter $(TRIGGER_A),0 1),)
+  $(error TRIGGER_A must be 0 or 1 (got '$(TRIGGER_A)'))
+endif
+ifeq ($(filter $(TRIGGER_B),0 1),)
+  $(error TRIGGER_B must be 0 or 1 (got '$(TRIGGER_B)'))
 endif
 
 # ---------------------------------------------------------------------------
@@ -66,10 +78,16 @@ else
   CDEFS += -DMLKEM_IMPL_CLEAN -DMLKEM_NAMESPACE=PQCLEAN_MLKEM$(PARAMS)_CLEAN_
 endif
 CDEFS += -DMLKEM_PARAMS=$(PARAMS)
-ifeq ($(TRIGGER),1)
-  CDEFS += -DMLKEM_TRIGGER
-  ifeq ($(shell grep -l MLKEM_TRIGGER $(IMPL_DIR)/*.c),)
-    $(warning TRIGGER=1 but no '#ifdef MLKEM_TRIGGER' in $(IMPL_DIR): firmware has no trigger)
+ifeq ($(TRIGGER_A),1)
+  CDEFS += -DMLKEM_TRIGGER_A
+  ifeq ($(shell grep -l MLKEM_TRIGGER_A $(IMPL_DIR)/*.c),)
+    $(warning TRIGGER_A=1 but no '#ifdef MLKEM_TRIGGER_A' in $(IMPL_DIR): firmware has no A trigger)
+  endif
+endif
+ifeq ($(TRIGGER_B),1)
+  CDEFS += -DMLKEM_TRIGGER_B
+  ifeq ($(shell grep -l MLKEM_TRIGGER_B $(IMPL_DIR)/*.c),)
+    $(warning TRIGGER_B=1 but no '#ifdef MLKEM_TRIGGER_B' in $(IMPL_DIR): firmware has no B trigger)
   endif
 endif
 

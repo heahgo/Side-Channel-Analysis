@@ -38,7 +38,7 @@ static uint8_t set_ct(uint8_t *buf, uint8_t len) { return load_chunk(ct, sizeof 
 
 static uint8_t do_dec(uint8_t *buf, uint8_t len)
 {
-    /* trigger: #ifdef MLKEM_TRIGGER inside the pqm4 sources */
+    /* trigger: #ifdef MLKEM_TRIGGER_A / MLKEM_TRIGGER_B inside the pqm4 sources */
     crypto_kem_dec(ss, ct, sk);
     simpleserial_put('r', CRYPTO_BYTES, ss);
     return 0x00;
@@ -51,7 +51,7 @@ static uint8_t reset(uint8_t *buf, uint8_t len)
     return 0x00;
 }
 
-/* 'i': firmware info -> 'r' 4 bytes: params/256, implementation, trigger, chunk size */
+/* 'i': firmware info -> 'r' 4 bytes: params/256, implementation, trigger (bit0=A bit1=B), chunk size */
 static uint8_t info(uint8_t *buf, uint8_t len)
 {
     uint8_t out[4];
@@ -63,10 +63,12 @@ static uint8_t info(uint8_t *buf, uint8_t len)
 #else
     out[1] = 3;                             /* clean */
 #endif
-#ifdef MLKEM_TRIGGER
-    out[2] = 1;
-#else
-    out[2] = 0;
+    out[2] = 0;                             /* bit0: trigger A (basemul), bit1: trigger B (poly_tomsg) */
+#ifdef MLKEM_TRIGGER_A
+    out[2] |= 0x01;
+#endif
+#ifdef MLKEM_TRIGGER_B
+    out[2] |= 0x02;
 #endif
     out[3] = CHUNK;
     simpleserial_put('r', 4, out);
